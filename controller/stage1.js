@@ -1,4 +1,22 @@
+const { config } = require('dotenv');
 const axios = require('axios');
+const NodeGeocoder = require('node-geocoder');
+const weather = require('openweather-apis');
+
+
+config();
+//geocoder config
+const geocoderOptions = {
+    provider: 'locationiq',
+    apiKey: process.env.LOCATIONIQ_API_KEY,
+};
+
+const geocoder = NodeGeocoder(geocoderOptions);
+
+//weather API config
+weather.setLang('en');
+weather.setUnits('metric');
+weather.setAPPID(process.env.IPGEOLOCATION_API_KEY);
 
 exports.greetVisitor = async (req, res) => {
     const visitorName = req.query.visitor_name || 'Guest';
@@ -7,31 +25,38 @@ exports.greetVisitor = async (req, res) => {
     let location = 'unknown';
     let temperature = 'unknown';
 
-    //check for local IP
+    //checking for local IP
     if (clientIpAddress === '127.0.0.1' || clientIpAddress === '::1') {
-        location = 'Lagos'; //default location for testing
+        location = 'Lagos'; //default location
     } else {
         try {
-            const geoRes = await axios.get(`https://api.ipgeolocation.io/ipgeo?apiKey=0b1b0ca07062407894e5f44ccf28971e&ip=${clientIpAddress}`);
-            if (geoRes.data.message === "'127.0.0.1' is a bogon (Internet Assigned Numbers Authority) IP address.") {
-                location = 'localhost';
-            } else {
-                location = geoRes.data.city || 'unknown';
-                console.log('Geo data:', geoRes.data);
+            //to fetch the geolocation data
+            const geoRes = await geocoder.geocode(clientIpAddress);
+            const geoData = geoRes[0];
 
-                const weatherRes = await axios.get(`https://api.openweathermap.org/data/2.5/weather?q=${location}&appid=baabf6dbfdad17211b98d497d93b071b&units=metric`);
-                const weatherData = weatherRes.data;
-                temperature = weatherData.main.temp || 'unknown';
-                console.log('Weather data:', weatherData);
+            if (geoData) {
+                location = geoData.city || 'unknown';
+                console.log('Geo data:', geoData);
+
+                //to fetch the weather data
+                weather.setCity(location);
+                weather.getTemperature((err, temp) => {
+                    if (err) {
+                        console.error('Error fetching weather data:', err);
+                    } else {
+                        temperature = temp;
+                        console.log('Weather data:', temp);
+
+                        res.json({
+                            client_ip: clientIpAddress,
+                            location: location,
+                            greeting: `Hello, ${visitorName}! The temperature is ${temperature} degrees Celsius in ${location}.`
+                        });
+                    }
+                });
             }
         } catch (error) {
             console.log('Error fetching location or weather data:', error.message);
         }
     }
-
-    res.json({
-        client_ip: clientIpAddress,
-        location: location,
-        greeting: `Hello, ${visitorName}! The temperature is ${temperature} degrees Celsius in ${location}.`
-    });
 };
